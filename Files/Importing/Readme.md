@@ -1,10 +1,9 @@
 
 
-See new posts
-Can you provide me a code to create an alternative tool for maven using golang which read the pom.xml and handles transitive dependencies, version conflicts or dependency scopes, exclusions and the different Maven dependency configurations, handle optional dependencies logic, maven repositories other than maven central along with junit testing and tool have effective concurrency download and run junit tests with memory management to run faster
+
 Here's a comprehensive Go implementation of a Maven-like dependency management tool. This is a complex solution that I'll break down into multiple files with explanations:
 First, the main package structure:
-go
+```go
 // main.go
 package main
 
@@ -86,8 +85,9 @@ func main() {
         }
     }
 }
+```
 POM Parser:
-go
+```go
 // parser/pom.go
 package parser
 
@@ -123,8 +123,9 @@ func ParsePOM(filename string) (*POM, error) {
 
     return &pom, nil
 }
+```
 Dependency Management:
-go
+```go
 // dependency/resolver.go
 package dependency
 
@@ -229,8 +230,9 @@ func (r *Resolver) isExcluded(dep Dependency, exclusions []Exclusion) bool {
 func (rd *ResolvedDependency) Coordinates() string {
     return fmt.Sprintf("%s:%s:%s", rd.GroupID, rd.ArtifactID, rd.Version)
 }
+```
 Repository Management:
-go
+```go
 // repository/manager.go
 package repository
 
@@ -323,7 +325,7 @@ func (m *Manager) GetPOMPath(dep dependency.Dependency) string {
     // Similar to getArtifactPath but with .pom extension
     // Implementation omitted for brevity
 }
-
+```
 ```go
 Test Runner:
 go
