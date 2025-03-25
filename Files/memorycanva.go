@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/zip"
+	"bytes"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -12,8 +13,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"sync"
-	"time"
 )
 
 // Pom represents the structure of a pom.xml file
@@ -142,19 +141,6 @@ type DependencyKey struct {
 
 // DependencyCache stores downloaded JAR files
 var DependencyCache = make(map[string]string)
-var cacheLock sync.RWMutex
-
-// Concurrency parameters
-const (
-	maxConcurrentDownloads = 10 // Limit concurrent downloads
-	max गोRoutines         = 100 // Limit total Go routines
-)
-
-var (
-	downloadSemaphore = make(chan struct{}, maxConcurrentDownloads)
-	goRoutineSemaphore = make(chan struct{}, maxGoRoutines)
-	wg                  sync.WaitGroup
-)
 
 func main() {
 	pomFile := "pom.xml"
@@ -192,11 +178,11 @@ func main() {
 	os.MkdirAll(pom.Build.OutputDirectory, os.ModePerm)
 	os.MkdirAll(pom.Build.TestOutputDirectory, os.ModePerm)
 
-	// Compile
-	if err := compileJavaCode(pom); err != nil {
-		fmt.Println("Error compiling Java code:", err)
-		return
-	}
+    // Compile
+    if err := compileJavaCode(pom); err != nil {
+        fmt.Println("Error compiling Java code:", err)
+        return
+    }
 
 	// Run JUnit tests
 	fmt.Println("\n--- Running JUnit Tests ---")
@@ -204,11 +190,10 @@ func main() {
 		fmt.Println("Error running JUnit tests:", err)
 	}
 
-	// Package
-	if err := packageArtifact(pom); err != nil {
-		fmt.Println("Error packaging the artifact", err)
-	}
-	wg.Wait() //wait for all downloads to finish
+    // Package
+    if err := packageArtifact(pom); err != nil{
+        fmt.Println("Error packaging the artifact", err)
+    }
 }
 
 // readPom reads and parses the pom.xml file.
@@ -226,60 +211,60 @@ func readPom(pomFile string) (*Pom, error) {
 	if err != nil {
 		return nil, err
 	}
-	// After unmarshalling, process properties
-	pom.processProperties()
+    // After unmarshalling, process properties
+    pom.processProperties()
 	return &pom, nil
 }
 
 // processProperties replaces variables in the POM with values from the <properties> section.
 func (pom *Pom) processProperties() {
-	if pom.Properties.Entries == nil {
-		return
-	}
+    if pom.Properties.Entries == nil {
+        return
+    }
 
-	propertiesMap := make(map[string]string)
-	for _, prop := range pom.Properties.Entries {
-		propertiesMap[prop.XMLName.Local] = prop.Value
-	}
+    propertiesMap := make(map[string]string)
+    for _, prop := range pom.Properties.Entries {
+        propertiesMap[prop.XMLName.Local] = prop.Value
+    }
 
-	// Helper function to replace variables in a string
-	replaceVars := func(s string) string {
-		for key, value := range propertiesMap {
-			s = strings.ReplaceAll(s, fmt.Sprintf("${%s}", key), value)
-		}
-		return s
-	}
+    // Helper function to replace variables in a string
+    replaceVars := func(s string) string {
+        for key, value := range propertiesMap {
+            s = strings.ReplaceAll(s, fmt.Sprintf("${%s}", key), value)
+        }
+        return s
+    }
 
-	// Apply variable replacement to relevant fields in the Pom struct.
-	pom.GroupID = replaceVars(pom.GroupID)
-	pom.ArtifactID = replaceVars(pom.ArtifactID)
-	pom.Version = replaceVars(pom.Version)
-	pom.Packaging = replaceVars(pom.Packaging)
-	pom.Build.SourceDirectory = replaceVars(pom.Build.SourceDirectory)
-	pom.Build.TestSourceDirectory = replaceVars(pom.Build.TestSourceDirectory)
-	pom.Build.OutputDirectory = replaceVars(pom.Build.OutputDirectory)
-	pom.Build.TestOutputDirectory = replaceVars(pom.Build.TestOutputDirectory)
+    // Apply variable replacement to relevant fields in the Pom struct.
+    pom.GroupID = replaceVars(pom.GroupID)
+    pom.ArtifactID = replaceVars(pom.ArtifactID)
+    pom.Version = replaceVars(pom.Version)
+    pom.Packaging = replaceVars(pom.Packaging)
+    pom.Build.SourceDirectory = replaceVars(pom.Build.SourceDirectory)
+    pom.Build.TestSourceDirectory = replaceVars(pom.Build.TestSourceDirectory)
+    pom.Build.OutputDirectory = replaceVars(pom.Build.OutputDirectory)
+    pom.Build.TestOutputDirectory = replaceVars(pom.Build.TestOutputDirectory)
 
-	// Iterate through dependencies and replace variables
-	for i := range pom.Dependencies.Dependencies {
-		pom.Dependencies.Dependencies[i].GroupID = replaceVars(pom.Dependencies.Dependencies[i].GroupID)
-		pom.Dependencies.Dependencies[i].ArtifactID = replaceVars(pom.Dependencies.Dependencies[i].ArtifactID)
-		pom.Dependencies.Dependencies[i].Version = replaceVars(pom.Dependencies.Dependencies[i].Version)
-		for j := range pom.Dependencies.Dependencies[i].Exclusions.Exclusions {
-			pom.Dependencies.Dependencies[i].Exclusions.Exclusions[j].GroupID = replaceVars(pom.Dependencies.Dependencies[i].Exclusions.Exclusions[j].GroupID)
-			pom.Dependencies.Dependencies[i].Exclusions.Exclusions[j].ArtifactID = replaceVars(pom.Dependencies.dependencies[i].Exclusions.Exclusions[j].ArtifactID)
-		}
-	}
+    // Iterate through dependencies and replace variables
+    for i := range pom.Dependencies.Dependencies {
+        pom.Dependencies.Dependencies[i].GroupID = replaceVars(pom.Dependencies.Dependencies[i].GroupID)
+        pom.Dependencies.Dependencies[i].ArtifactID = replaceVars(pom.Dependencies.Dependencies[i].ArtifactID)
+        pom.Dependencies.Dependencies[i].Version = replaceVars(pom.Dependencies.Dependencies[i].Version)
+        for j := range pom.Dependencies.Dependencies[i].Exclusions.Exclusions {
+            pom.Dependencies.Dependencies[i].Exclusions.Exclusions[j].GroupID = replaceVars(pom.Dependencies.Dependencies[i].Exclusions.Exclusions[j].GroupID)
+            pom.Dependencies.Dependencies[i].Exclusions.Exclusions[j].ArtifactID = replaceVars(pom.Dependencies.Dependencies[i].Exclusions.Exclusions[j].ArtifactID)
+        }
+    }
 
-	for i := range pom.DependencyManagement.Dependencies {
-		pom.DependencyManagement.Dependencies[i].GroupID = replaceVars(pom.DependencyManagement.Dependencies[i].GroupID)
-		pom.DependencyManagement.Dependencies[i].ArtifactID = replaceVars(pom.DependencyManagement.Dependencies[i].ArtifactID)
-		pom.DependencyManagement.Dependencies[i].Version = replaceVars(pom.DependencyManagement.Dependencies[i].Version)
-		for j := range pom.DependencyManagement.Dependencies[i].Exclusions.Exclusions {
-			pom.DependencyManagement.Dependencies[i].Exclusions.Exclusions[j].GroupID = replaceVars(pom.DependencyManagement.Dependencies[i].Exclusions.Exclusions[j].GroupID)
-			pom.DependencyManagement.Dependencies[i].Exclusions.Exclusions[j].ArtifactID = replaceVars(pom.DependencyManagement.Dependencies[i].Exclusions.Exclusions[j].ArtifactID)
-		}
-	}
+    for i := range pom.DependencyManagement.Dependencies {
+        pom.DependencyManagement.Dependencies[i].GroupID = replaceVars(pom.DependencyManagement.Dependencies[i].GroupID)
+        pom.DependencyManagement.Dependencies[i].ArtifactID = replaceVars(pom.DependencyManagement.Dependencies[i].ArtifactID)
+        pom.DependencyManagement.Dependencies[i].Version = replaceVars(pom.DependencyManagement.Dependencies[i].Version)
+        for j := range pom.DependencyManagement.Dependencies[i].Exclusions.Exclusions {
+            pom.DependencyManagement.Dependencies[i].Exclusions.Exclusions[j].GroupID = replaceVars(pom.DependencyManagement.Dependencies[i].Exclusions.Exclusions[j].GroupID)
+            pom.DependencyManagement.Dependencies[i].Exclusions.Exclusions[j].ArtifactID = replaceVars(pom.DependencyManagement.Dependencies[i].Exclusions.Exclusions[j].ArtifactID)
+        }
+    }
 }
 
 // resolveDependencies resolves the dependencies specified in the pom.xml file.
@@ -440,7 +425,7 @@ func fetchTransitiveDependencies(dep ResolvedDependency, repositories []Reposito
 	if err != nil {
 		return nil, fmt.Errorf("error unmarshalling transitive POM for %s:%s:%s: %v", dep.GroupID, dep.ArtifactID, dep.Version, err)
 	}
-	transitivePom.processProperties() //process properties.
+    transitivePom.processProperties() //process properties.
 	return transitivePom.Dependencies.Dependencies, nil
 }
 
@@ -472,7 +457,7 @@ func constructArtifactURL(groupID, artifactID, version, packaging string, reposi
 	return ""
 }
 
-// downloadDependencies downloads the resolved dependencies with concurrency.
+// downloadDependencies downloads the resolved dependencies.
 func downloadDependencies(resolvedDependencies map[DependencyKey]ResolvedDependency, repositories []Repository) error {
 	cacheDir := "dependencies_cache"
 	os.MkdirAll(cacheDir, os.ModePerm)
@@ -489,56 +474,32 @@ func downloadDependencies(resolvedDependencies map[DependencyKey]ResolvedDepende
 		dep.JarURL = jarURL
 		cachePath := filepath.Join(cacheDir, fmt.Sprintf("%s-%s-%s.jar", dep.ArtifactID, dep.Version, dep.GroupID))
 
-		cacheLock.RLock()
-		_, inCache := DependencyCache[fmt.Sprintf("%s:%s:%s", dep.GroupID, dep.ArtifactID, dep.Version)]
-		cacheLock.RUnlock()
+		if _, err := os.Stat(cachePath); os.IsNotExist(err) {
+			fmt.Printf("Downloading %s:%s:%s from %s...\n", dep.GroupID, dep.ArtifactID, dep.Version, jarURL)
+			resp, err := http.Get(jarURL)
+			if err != nil {
+				return fmt.Errorf("error downloading %s:%s:%s: %v", dep.GroupID, dep.ArtifactID, dep.Version, err)
+			}
+			defer resp.Body.Close()
 
-		if !inCache {
-			// Use a semaphore to limit concurrent downloads
-			downloadSemaphore <- struct{}{}
-			goRoutineSemaphore <- struct{}{}
-			wg.Add(1)
-			go func(dep ResolvedDependency, jarURL, cachePath string) {
-				defer func() {
-					<-downloadSemaphore
-					<-goRoutineSemaphore
-					wg.Done()
-				}()
-				if err := downloadFile(jarURL, cachePath); err != nil {
-					fmt.Printf("Error downloading %s:%s:%s: %v\n", dep.GroupID, dep.ArtifactID, dep.Version, err)
-					return // Important:  Don't try to add to cache on error.
-				}
-				cacheLock.Lock()
-				DependencyCache[fmt.Sprintf("%s:%s:%s", dep.GroupID, dep.ArtifactID, dep.Version)] = cachePath
-				cacheLock.Unlock()
-			}(dep, jarURL, cachePath)
+			if resp.StatusCode != http.StatusOK {
+				return fmt.Errorf("error downloading %s:%s:%s (status: %d)", dep.GroupID, dep.ArtifactID, dep.Version, resp.StatusCode)
+			}
+
+			out, err := os.Create(cachePath)
+			if err != nil {
+				return fmt.Errorf("error creating cache file for %s:%s:%s: %v", dep.GroupID, dep.ArtifactID, dep.Version, err)
+			}
+			defer out.Close()
+
+			_, err = io.Copy(out, resp.Body)
+			if err != nil {
+				return fmt.Errorf("error writing to cache file for %s:%s:%s: %v", dep.GroupID, dep.ArtifactID, dep.Version, err)
+			}
+			DependencyCache[fmt.Sprintf("%s:%s:%s", dep.GroupID, dep.ArtifactID, dep.Version)] = cachePath
+		} else {
+			DependencyCache[fmt.Sprintf("%s:%s:%s", dep.GroupID, dep.ArtifactID, dep.Version)] = cachePath
 		}
-	}
-	return nil
-}
-
-// downloadFile downloads a file from a URL to a local path.
-func downloadFile(url, filepath string) error {
-	fmt.Printf("Downloading from %s to %s\n", url, filepath)
-	resp, err := http.Get(url)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("server returned non-OK status: %v", resp.Status)
-	}
-
-	out, err := os.Create(filepath)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	_, err = io.Copy(out, resp.Body)
-	if err != nil {
-		return err
 	}
 	return nil
 }
@@ -569,7 +530,7 @@ func compileJavaCode(pom *Pom) error {
 
 	// Default output directory.
 	outputDir := "target/classes"
-	if pom.Build.OutputDirectory != "" {
+	if pom.Build.OutputDirectory != ""{
 		outputDir = pom.Build.OutputDirectory
 	}
 
@@ -614,4 +575,139 @@ func compileJavaCode(pom *Pom) error {
 
 // runJUnitTests runs the JUnit tests.
 func runJUnitTests(pom *Pom, resolvedDependencies map[DependencyKey]ResolvedDependency) error {
-	// D
+    // Default test source directory.
+    testSourceDir := "src/test/java"
+    if pom.Build.TestSourceDirectory != "" {
+        testSourceDir = pom.Build.TestSourceDirectory
+    }
+    //Default test output directory
+    testOutputDir := "target/test-classes"
+     if pom.Build.TestOutputDirectory != ""{
+        testOutputDir = pom.Build.TestOutputDirectory
+    }
+
+    // Find all Java test files
+    testJavaFiles := []string{}
+    err := filepath.Walk(testSourceDir, func(path string, info os.FileInfo, err error) error {
+        if err != nil {
+            return err
+        }
+        if !info.IsDir() && strings.HasSuffix(info.Name(), "Test.java") { // Basic test file detection
+            testJavaFiles = append(testJavaFiles, path)
+        }
+        return nil
+    })
+    if err != nil {
+        return fmt.Errorf("error walking test source directory: %v", err)
+    }
+    if len(testJavaFiles) == 0{
+        fmt.Println("No test files found")
+        return nil
+    }
+
+    // Compile the test files.
+    classpath := constructClasspath()
+    javacCmd := "javac"
+    javacArgs := []string{"-d", testOutputDir, "-classpath", classpath}
+    javacArgs = append(javacArgs, testJavaFiles...)
+    fmt.Printf("Compiling test Java code with command: %s %s\n", javacCmd, strings.Join(javacArgs, " "))
+
+    cmd := exec.Command(javacCmd, javacArgs...)
+    cmd.Stdout = os.Stdout
+    cmd.Stderr = os.Stderr
+    err = cmd.Run()
+    if err != nil {
+        return fmt.Errorf("error compiling test code: %v", err)
+    }
+    // Construct the classpath for running the tests.  Include the test output directory.
+    classpath = constructClasspath() + string(os.PathListSeparator) + testOutputDir
+
+    // Use a simple command to run JUnit (assuming it's on the classpath).
+	javaCmd := "java"
+	javaArgs := []string{"-cp", classpath, "org.junit.runner.JUnitCore"} //Minimal, this requires junit in the classpath
+    for _, testFile := range testJavaFiles{
+        //Convert the file path to the class name.
+        className := strings.ReplaceAll(strings.TrimSuffix(filepath.Base(testFile),".java"),".","/")+""
+        javaArgs = append(javaArgs, className)
+    }fmt.Printf("Running JUnit tests with command: %s %s\n", javaCmd, strings.Join(javaArgs, " "))
+	cmd = exec.Command(javaCmd, javaArgs...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err = cmd.Run()
+	if err != nil {
+		return fmt.Errorf("error running JUnit tests: %v", err)
+	}
+	return nil
+}
+
+// constructClasspath builds the classpath string.
+func constructClasspath() string {
+	classpath := ""
+	for _, path := range DependencyCache {
+		classpath += path + string(os.PathListSeparator)
+	}
+	// Add current directory (for compiled classes)
+	classpath += "."
+	return classpath
+}
+
+// packageArtifact packages the compiled code into a JAR file.
+func packageArtifact(pom *Pom) error {
+    // Default output directory
+    outputDir := "target"
+    if pom.Build.OutputDirectory != "" {
+        outputDir = pom.Build.OutputDirectory
+    }
+
+    // Default jar name
+    jarName := fmt.Sprintf("%s-%s.jar", pom.ArtifactID, pom.Version)
+    jarPath := filepath.Join(outputDir, jarName)
+
+    // Create the JAR file.
+    jarFile, err := os.Create(jarPath)
+    if err != nil {
+        return fmt.Errorf("error creating JAR file: %v", err)
+    }
+    defer jarFile.Close()
+    zipWriter := zip.NewWriter(jarFile)
+    defer zipWriter.Close()
+
+    // Walk through the output directory and add files to the JAR.
+    err = filepath.Walk(outputDir, func(path string, info os.FileInfo, err error) error {
+        if err != nil {
+            return err
+        }
+        if info.IsDir() {
+            return nil // Skip directories
+        }
+
+        // Get relative path within the output directory
+        relPath, err := filepath.Rel(outputDir, path)
+        if err != nil {
+            return err
+        }
+
+        // Add file to the JAR
+        zipEntry, err := zipWriter.Create(relPath)
+        if err != nil {
+            return fmt.Errorf("error creating JAR entry for %s: %v", relPath, err)
+        }
+
+        file, err := os.Open(path)
+        if err != nil {
+            return fmt.Errorf("error opening file %s: %v", path, err)
+        }
+        defer file.Close()
+
+        _, err = io.Copy(zipEntry, file)
+        if err != nil {
+            return fmt.Errorf("error copying %s to JAR: %v", path, err)
+        }
+        return nil
+    })
+    if err != nil {
+        return fmt.Errorf("error walking output directory: %v", err)
+    }
+    fmt.Printf("Successfully created JAR file: %s\n", jarPath)
+    return nil
+}
