@@ -109,3 +109,111 @@ func fetchSplunkLogs(splunkURL, username, password, searchQuery string) ([]map[s
 
         return searchResults.Results, nil
 }
+
+
+
+package main
+
+import (
+        "bufio"
+        "bytes"
+        "encoding/json"
+        "fmt"
+        "io"
+        "net/http"
+        "net/url"
+        "os"
+        "strings"
+)
+
+func main() {
+        splunkURL := os.Getenv("SPLUNK_URL")
+        splunkUsername := os.Getenv("SPLUNK_USERNAME")
+        splunkPassword := os.Getenv("SPLUNK_PASSWORD")
+        searchQuery := "search index=your_index | head 10 | fields _raw"
+
+        err := fetchAndProcessSplunkLogs(splunkURL, splunkUsername, splunkPassword, searchQuery)
+        if err != nil {
+                fmt.Println("Error:", err)
+        }
+}
+
+func fetchAndProcessSplunkLogs(splunkURL, username, password, searchQuery string) error {
+        loginURL := splunkURL + "/services/auth/login"
+        searchURL := splunkURL + "/services/search/jobs/export"
+
+        // 1. Login
+        loginData := url.Values{}
+        loginData.Set("username", username)
+        loginData.Set("password", password)
+
+        loginResp, err := http.PostForm(loginURL, loginData)
+        if err != nil {
+                return fmt.Errorf("login failed: %v", err)
+        }
+        defer loginResp.Body.Close()
+
+        var loginResult map[string]interface{}
+        err = json.NewDecoder(loginResp.Body).Decode(&loginResult)
+        if err != nil {
+                return fmt.Errorf("failed to parse login response: %v", err)
+        }
+
+        sessionKey, ok := loginResult["sessionKey"].(string)
+        if !ok {
+                return fmt.Errorf("session key not found")
+        }
+
+        // 2. Search
+        searchData := url.Values{}
+        searchData.Set("search", searchQuery)
+        searchData.Set("output_mode", "json")
+        searchData.Set("count", "0")
+
+        req, err := http.NewRequest("POST", searchURL, bytes.NewBufferString(searchData.Encode()))
+        if err != nil {
+                return fmt.Errorf("failed to create search request: %v", err)
+        }
+
+        req.Header.Set("Authorization", "Splunk "+sessionKey)
+        req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+        client := &http.Client{}
+        searchResp, err := client.Do(req)
+        if err != nil {
+                return fmt.Errorf("search failed: %v", err)
+        }
+        defer searchResp.Body.Close()
+
+        // 3. Process the JSON stream
+        reader := bufio.NewReader(searchResp.Body)
+        for {
+                line, err := reader.ReadString('\n')
+                if err != nil {
+                        if err == io.EOF {
+                                break
+                        }
+                        return fmt.Errorf("error reading line: %v", err)
+                }
+
+                line = strings.TrimSpace(line)
+                if line == "" {
+                        continue // Skip empty lines.
+                }
+
+                var result map[string]interface{}
+                err = json.Unmarshal([]byte(line), &result)
+                if err != nil {
+                        fmt.Printf("Error unmarshaling line: %v, line: %s\n", err, line)
+                        continue // Skip bad lines.
+                }
+
+                // Process the result map
+                fmt.Println(result)
+                if raw, ok := result["_raw"].(string); ok {
+                        fmt.Println("_raw:", raw)
+                }
+        }
+        return nil
+}
+
