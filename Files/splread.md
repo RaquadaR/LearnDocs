@@ -1,6 +1,6 @@
 When running a Go application continuously for months with periodic requests, memory management becomes critical to prevent memory leaks, excessive allocation, and eventual crashes. Below,modified the previous Splunk client code to optimize memory usage for long-running scenarios and explain the strategies employed. Key areas of focus include minimizing allocations, reusing objects, handling garbage collection effectively, and cleaning up resources.
 Here’s the updated code with memory management considerations:
-go
+```go
 package main
 
 import (
@@ -326,6 +326,7 @@ func main() {
     fmt.Println("Shutting down...")
     client.Shutdown()
 }
+```
 Memory Management Strategies:
 Object Reuse with sync.Pool:
 Added a sync.Pool for reusing *bytes.Buffer objects for request payloads.
@@ -358,12 +359,13 @@ Added signal handling for graceful shutdown on SIGINT or SIGTERM, ensuring resou
 Additional Considerations:
 Memory Profiling:
 Use Go’s pprof package to monitor memory usage over time:
-go
+```go
 import "runtime/pprof"
 // Add at startup:
 f, _ := os.Create("mem.pprof")
 pprof.WriteHeapProfile(f)
 f.Close()
+```
 Run periodically or on demand to identify memory growth.
 Adjust Capacities:
 Tune MaxConcurrent, SearchChan buffer size, and results capacity based on your workload to balance memory use and performance.
