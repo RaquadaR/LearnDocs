@@ -217,3 +217,134 @@ func fetchAndProcessSplunkLogs(splunkURL, username, password, searchQuery string
         return nil
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
+package main
+
+import (
+    "bufio"
+    "encoding/json"
+    "fmt"
+    "io"
+    "net/http"
+    "strings"
+    "time"
+)
+
+type SplunkConfig struct {
+    BaseURL      string
+    Username     string
+    Password     string
+    SearchQuery  string
+}
+
+func fetchSplunkLogs(config SplunkConfig) ([]map[string]interface{}, error) {
+    // Create the search job
+    searchURL := fmt.Sprintf("%s/services/search/jobs", config.BaseURL)
+    
+    // Prepare the search payload
+    payload := strings.NewReader(fmt.Sprintf("search=%s&output_mode=json&exec_mode=oneshot", config.SearchQuery))
+    
+    // Create HTTP client with timeout
+    client := &http.Client{
+        Timeout: 30 * time.Second,
+    }
+    
+    // Create request
+    req, err := http.NewRequest("POST", searchURL, payload)
+    if err != nil {
+        return nil, fmt.Errorf("error creating request: %v", err)
+    }
+    
+    // Set basic authentication
+    req.SetBasicAuth(config.Username, config.Password)
+    req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+    
+    // Execute request
+    resp, err := client.Do(req)
+    if err != nil {
+        return nil, fmt.Errorf("error executing request: %v", err)
+    }
+    defer resp.Body.Close()
+    
+    // Check response status
+    if resp.StatusCode != http.StatusOK {
+        return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+    }
+    
+    // Read response line by line
+    var results []map[string]interface{}
+    scanner := bufio.NewScanner(resp.Body)
+    
+    for scanner.Scan() {
+        line := scanner.Text()
+        if line == "" {
+            continue
+        }
+        
+        // Parse each line as a separate JSON object
+        var result struct {
+            Result map[string]interface{} `json:"result"`
+        }
+        
+        if err := json.Unmarshal([]byte(line), &result); err != nil {
+            // If direct parsing fails, try as a raw map
+            var rawMap map[string]interface{}
+            if err := json.Unmarshal([]byte(line), &rawMap); err != nil {
+                fmt.Printf("Warning: Failed to parse line: %v\n", err)
+                continue
+            }
+            results = append(results, rawMap)
+        } else if result.Result != nil {
+            results = append(results, result.Result)
+        }
+    }
+    
+    if err := scanner.Err(); err != nil {
+        return nil, fmt.Errorf("error reading response: %v", err)
+    }
+    
+    return results, nil
+}
+
+func main() {
+    // Configure Splunk connection
+    config := SplunkConfig{
+        BaseURL:     "https://your-splunk-instance:8089",
+        Username:    "your-username",
+        Password:    "your-password",
+        SearchQuery: "search index=your_index sourcetype=your_sourcetype earliest=-24h latest=now",
+    }
+    
+    // Fetch logs
+    results, err := fetchSplunkLogs(config)
+    if err != nil {
+        fmt.Printf("Error fetching Splunk logs: %v\n", err)
+        return
+    }
+    
+    // Process each log record
+    for i, record := range results {
+        fmt.Printf("Record %d:\n", i+1)
+        
+        // Access specific fields from the map
+        for key, value := range record {
+            fmt.Printf("%s: %v\n", key, value)
+        }
+        fmt.Println("-------------------")
+    }
+    
+    // Example: Count total records
+    fmt.Printf("\nTotal records retrieved: %d\n", len(results))
+}
+
